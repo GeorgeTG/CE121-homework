@@ -1,0 +1,22 @@
+Prin kaloume opoiadhpote entolh tha checkaroume to status tou pid
+kai kanoume update sthn lista
+
+exec: fork - execlp
+
+find sthn lista an yparxei to pid.
+kill: Elenxoume an einai STOPPED. An einai tote stelnoume SIGTERM kai epeita
+	stelnoume SIGCONT. Perimenoume me waitpid kai stelnoume SIGKILL. (??)
+stop: an trexei stelnoume SIGSTOP. alliws ignore me warning ston xrhsth.
+cont: an einai stopped stelnoume SIGCONT. alliws ignore me warning ston xrhsth.
+list: print tin lista apo struct kai check to status.
+info: stelnoume to shma SIGUSR1 kai pithan na ton kanoume SIG_IGN mesa sthn 
+	fork an ginetai ( ta paidia pou tha exoume ylopoihmenh ton handler
+	den tha exoun kapoio problhma
+
+struct process{
+	int pid;
+	int status;
+	char * progname;
+	char * args[];
+};
+
