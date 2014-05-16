@@ -9,8 +9,12 @@
 #include "debug.h"
 #include "library.h"
 
+/*#define NDEBUG*/
+/* ipcs -m !!!!! Terminal command to show all shared memory segments!!!
+ * ipcrm -m <shmid> !!!! Terminal command to destroy segment!! */
+
 int shmid;
-shm_st *memory;
+shm_st *shm_segment;
 
 int buf_init(int n) {
 
@@ -21,7 +25,7 @@ int buf_init(int n) {
 
     int _shmid = shmget(SHM_KEY, totalSize, IPC_CREAT | IPC_EXCL | S_IRWXU);
     if( _shmid < 0 ) {
-        debug("_shmid < 0!\n");
+        log_warn("_shmid < 0!\n");
         if( errno == EEXIST ) {
             _shmid = shmget(SHM_KEY, totalSize, 0);
             retValue = 0;
@@ -31,15 +35,17 @@ int buf_init(int n) {
             return -1;
         }
     }
-    printf("%d\n", _shmid);
+
+    debug("_shmid: %d\n", _shmid);
 
     shmid = _shmid;
-    memory = (shm_st*)shmat(shmid, NULL, 0);
-    if( memory == (void*)-1 ) {
+    shm_segment = (shm_st*)shmat(shmid, NULL, 0);
+    if( shm_segment == (void*)-1 ) {
         log_err("shmat");
         return -1;
     }
 
-    debug("Memory pointer is: %p\n", memory);
+    debug("Memory pointer is: %p\n", shm_segment);
     return retValue;
 }
+

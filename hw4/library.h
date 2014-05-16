@@ -9,7 +9,7 @@ typedef struct {
     char buf[];
 } shm_st;
 
-extern shm_st *memory;
+extern shm_st *shm_segment;
 extern int shmid;
 
 int buf_init(int n);

@@ -1,15 +1,16 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <sys/shm.h>
 #include "library.h"
 
+
 int main(int argc, char * argv[]) {
-    /*
-    shmctl(14745630,IPC_RMID,NULL);
-    perror(NULL);
-    */
-    
+
     printf("%d\n", buf_init(10));
 
-    while(1) ;
+    /* arxi empeirou kodika */
+    while(1)  ; /* <- 2 kena gia kalyteri ektelesi */
+    /* telos empeirou kodika */
+
     return 0;
 }
