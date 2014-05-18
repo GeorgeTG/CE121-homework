@@ -7,7 +7,6 @@
 #include <sys/types.h>
 #include <errno.h>
 
-#include "debug.h"
 #include "library.h"
 
 #define RET_FAIL -1
@@ -18,41 +17,52 @@
 
 #define is_mem_ok(M) (M != NULL && M!=(void*)-1)
 
-/*#define NDEBUG*/
+#define NDEBUG
 /* ipcs -m !!!!! Terminal command to show all shared memory segments!!!
  * ipcrm -m <shmid> !!!! Terminal command to destroy segment!! */
+
+#include "debug.h"
 
 int shmid, n;
 shm_st *shm_segment = NULL;
 
 int buf_init(int n) {
+    debug("Key: %d", SHM_KEY);
     debug("Lean struct size: %zu", sizeof(*shm_segment) );
     /* we need n+1 size since we have to sacriffice 1 spot in the
-     * array so we can use circular buffer related, modulo calculations
+     * array in order to use circular-buffer related modulo calculations
      * properly */
     size_t totalSize = sizeof(shm_st) + (n+1)*sizeof(char);
     debug("Total size: %zu", totalSize);
 
     int retValue = RET_SUCCESS;
-    debug("Key: %d", SHM_KEY);
+
+    /* Try to create a NEW shared memory segment */
     int _shmid = shmget(SHM_KEY, totalSize, IPC_CREAT | IPC_EXCL | S_IRWXU);
     if( _shmid < 0 ) {
         log_warn("_shmid < 0!\n");
         if( errno == EEXIST ) {
             log_info("Segment already exists!");
 
+            /* Call without options to get existant segment ID */
             _shmid = shmget(SHM_KEY, totalSize, 0);
             if (_shmid < 0) {
                 log_err("shmget");
                 return RET_FAIL;
             }
 
+            /* segment already existed and we got ID successfully */
             retValue = RET_PASS;
         }
         else {
             log_err("shmget");
             return RET_FAIL;
         }
+    }
+    else {
+        /* Init struct */
+        shm_segment->size = n+1;
+        shm_segment->in = shm_segment->out = 0;
     }
     debug("_shmid: %d\n", _shmid);
 
@@ -62,10 +72,6 @@ int buf_init(int n) {
         log_err("shmat");
         return RET_FAIL;
     }
-
-    /* Init struct */
-    shm_segment->size = n+1;
-    shm_segment->in = shm_segment->out = 0;
 
     debug("Attached ID: [%d] at [%p].\n", shmid, shm_segment);
     return retValue;
