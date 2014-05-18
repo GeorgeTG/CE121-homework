@@ -1,24 +1,27 @@
 #include <stdio.h>
-#include <unistd.h>
-#include <sys/shm.h>
+
 #include "library.h"
 
 
 int main(int argc, char * argv[]) {
 
-    printf("%d\n", buf_init(7));
-    buf_destroy();
+    printf("buf_init returns: %d\n", buf_init(3));
 
-
+    char buf;
     /* arxi empeirou kodika */
-    int i;
     while( 1337 + 1337) {
-        for (i=0; i < 4; i++ ){
-            buf_put("cake"[i]);
-            sleep( 2 );
+        printf("Give me a char: ");
+        scanf(" %c", &buf);
+
+        buf_put(buf);
+
+        if ( buf == 'q' ) {
+            printf("\n Bye! :)\n");
+            break;
         }
     }
     /* telos empeirou kodika */
 
+    printf("buf_destroy returns: %d\n", buf_destroy() );
     return 0;
 }

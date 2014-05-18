@@ -34,12 +34,19 @@ int buf_init(int n) {
     debug("Total size: %zu", totalSize);
 
     int retValue = RET_SUCCESS;
-
+    debug("Key: %d", SHM_KEY);
     int _shmid = shmget(SHM_KEY, totalSize, IPC_CREAT | IPC_EXCL | S_IRWXU);
     if( _shmid < 0 ) {
         log_warn("_shmid < 0!\n");
         if( errno == EEXIST ) {
+            log_info("Segment already exists!");
+
             _shmid = shmget(SHM_KEY, totalSize, 0);
+            if (_shmid < 0) {
+                log_err("shmget");
+                return RET_FAIL;
+            }
+
             retValue = RET_PASS;
         }
         else {
