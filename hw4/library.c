@@ -10,42 +10,53 @@
 #include "debug.h"
 #include "library.h"
 
+#define RET_FAIL -1
+#define RET_SUCCESS 1
+#define RET_PASS 0
+
+#define is_mem_ok(M) (M != NULL && M!=(void*)-1)
+
 /*#define NDEBUG*/
 /* ipcs -m !!!!! Terminal command to show all shared memory segments!!!
  * ipcrm -m <shmid> !!!! Terminal command to destroy segment!! */
 
-int shmid, in, out;
+int shmid, n;
 shm_st *shm_segment = NULL;
 
 int buf_init(int n) {
-    size_t totalSize = sizeof(shm_st) + n*sizeof(char);
-    int retValue = 1;
+    debug("Lean struct size: %zu", sizeof(*shm_segment) );
+    /* we need n+1 size since we have to sacriffice 1 spot in the
+     * array so we can use circular buffer related, modulo calculations
+     * properly */
+    size_t totalSize = sizeof(shm_st) + (n+1)*sizeof(char);
+    debug("Total size: %zu", totalSize);
+
+    int retValue = RET_SUCCESS;
 
     int _shmid = shmget(SHM_KEY, totalSize, IPC_CREAT | IPC_EXCL | S_IRWXU);
     if( _shmid < 0 ) {
         log_warn("_shmid < 0!\n");
         if( errno == EEXIST ) {
             _shmid = shmget(SHM_KEY, totalSize, 0);
-            retValue = 0;
+            retValue = RET_PASS;
         }
         else {
             log_err("shmget");
-            return -1;
+            return RET_FAIL;
         }
     }
-    else {
-        /* init in,out values */
-        in = out = 0;
-    }
-
     debug("_shmid: %d\n", _shmid);
 
     shmid = _shmid;
     shm_segment = (shm_st*)shmat(shmid, NULL, 0);
     if( shm_segment == (void*)-1 ) {
         log_err("shmat");
-        return -1;
+        return RET_FAIL;
     }
+
+    /* Init struct */
+    shm_segment->size = n+1;
+    shm_segment->in = shm_segment->out = 0;
 
     debug("Attached ID: [%d] at [%p].\n", shmid, shm_segment);
     return retValue;
@@ -56,24 +67,77 @@ int buf_destroy(void) {
     if ( reValue < 0 ) {
         if ( errno == EIDRM ) {
             log_warn("shmid: %d already removed!", shmid);
-            return 0;
+            return RET_PASS;
         }
 
         log_err("shmctl");
-        return -1;
+        return RET_FAIL;
     }
-    debug("[%d] scheduled for deletion.", shmid);
+    debug("segment: [%d] scheduled for deletion.", shmid);
     /* Everything went OK */
-    return 1;
+    return RET_SUCCESS;
+}
+
+int abs(int a){
+    return a>0? a: -a;
 }
 
 int buf_put(char c) {
-    if ( shm_segment == NULL ){
+    if ( !is_mem_ok(shm_segment) ){
         log_err("Buffer not initialized.");
-        return -1;
+        return RET_FAIL;
     }
 
+    /* Increment in */
+    shm_segment->in = (shm_segment->in+1) % shm_segment->size;
 
+    debug("Trying to put char [%c] in buffer, in: %d, out: %d", c,
+            shm_segment->in,
+            shm_segment->out
+        );
+
+    while ( shm_segment->out - shm_segment->in == 1){
+        /* Busy loop, waiting for buffer to get an empty slot */
+    }
+
+    (shm_segment->buf)[(shm_segment->in)] = c;
+    debug("We just put char [%c] in buffer @ pos: %d", c, shm_segment->in);
+    debug("buf_put: positions state--> in: %d, out: %d",
+            shm_segment->in,
+            shm_segment->out
+        );
+
+    return RET_SUCCESS;
 }
+
+int buf_get(char *c){
+    if ( !is_mem_ok(shm_segment) ){
+            log_err("Buffer not initialized.");
+            return RET_FAIL;
+    }
+    debug("Trying to get char from buffer, in: %d, out: %d",
+            shm_segment->in,
+            shm_segment->out
+        );
+
+    while( shm_segment->in - shm_segment->out == 1){
+        /* Busy loop, waiting for buffer to fill so we can read */
+    }
+
+    /* Extract next character from buffer */
+    *c = (shm_segment->buf)[shm_segment->out];
+
+    /* Increment out */
+    shm_segment->out = (shm_segment->out + 1) % shm_segment->size;
+
+    debug("Got char %c from buffer, in: %d, out: %d", *c,
+        shm_segment->in,
+        shm_segment->out
+    );
+
+
+    return RET_SUCCESS;
+}
+
 
 
