@@ -19,5 +19,6 @@ int main(int argc, char * argv[]) {
     }
     /* telos empeirou kodika */
 
+    printf("buf_destroy returns: %d\n", buf_destroy() );
     return 0;
 }

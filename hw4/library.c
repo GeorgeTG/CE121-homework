@@ -17,13 +17,13 @@
 
 #define is_mem_ok(M) (M != NULL && M!=(void*)-1)
 
-#define NDEBUG
+/*#define NDEBUG*/
 /* ipcs -m !!!!! Terminal command to show all shared memory segments!!!
  * ipcrm -m <shmid> !!!! Terminal command to destroy segment!! */
 
 #include "debug.h"
 
-int shmid, n;
+int shmid;
 shm_st *shm_segment = NULL;
 
 int buf_init(int n) {
@@ -36,7 +36,6 @@ int buf_init(int n) {
     debug("Total size: %zu", totalSize);
 
     int retValue = RET_SUCCESS;
-
     /* Try to create a NEW shared memory segment */
     int _shmid = shmget(SHM_KEY, totalSize, IPC_CREAT | IPC_EXCL | S_IRWXU);
     if( _shmid < 0 ) {
@@ -59,11 +58,6 @@ int buf_init(int n) {
             return RET_FAIL;
         }
     }
-    else {
-        /* Init struct */
-        shm_segment->size = n+1;
-        shm_segment->in = shm_segment->out = 0;
-    }
     debug("_shmid: %d\n", _shmid);
 
     shmid = _shmid;
@@ -74,12 +68,18 @@ int buf_init(int n) {
     }
 
     debug("Attached ID: [%d] at [%p].\n", shmid, shm_segment);
+
+    if (retValue > 0 ){
+        /* Init struct */
+        shm_segment->size = n+1;
+        shm_segment->in = shm_segment->out = 0;
+    }
     return retValue;
 }
 
 int buf_destroy(void) {
-    int reValue = shmctl(shmid, IPC_RMID, NULL);
-    if ( reValue < 0 ) {
+    int retValue = shmctl(shmid, IPC_RMID, NULL);
+    if ( retValue < 0 ) {
         if ( errno == EIDRM ) {
             log_warn("shmid: %d already removed!", shmid);
             return RET_PASS;
@@ -89,6 +89,13 @@ int buf_destroy(void) {
         return RET_FAIL;
     }
     debug("segment: [%d] scheduled for deletion.", shmid);
+
+    retValue = shmdt(shm_segment);
+    if ( retValue < 0 ){
+        log_err("shmdt");
+        return -1;
+    }
+
     /* Everything went OK */
     return RET_SUCCESS;
 }
