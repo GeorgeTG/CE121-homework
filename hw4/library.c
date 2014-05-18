@@ -14,6 +14,8 @@
 #define RET_SUCCESS 1
 #define RET_PASS 0
 
+#define USLEEP_TIME 200
+
 #define is_mem_ok(M) (M != NULL && M!=(void*)-1)
 
 /*#define NDEBUG*/
@@ -78,10 +80,6 @@ int buf_destroy(void) {
     return RET_SUCCESS;
 }
 
-int abs(int a){
-    return a>0? a: -a;
-}
-
 int buf_put(char c) {
     if ( !is_mem_ok(shm_segment) ){
         log_err("Buffer not initialized.");
@@ -99,6 +97,7 @@ int buf_put(char c) {
         );
 
     while ( shm_segment->out - peek == 0){
+        usleep( USLEEP_TIME );
         /* Busy loop, waiting for buffer to get an empty slot */
     }
 
@@ -125,6 +124,7 @@ int buf_get(char *c){
         );
 
     while( shm_segment->in - shm_segment->out == 0){
+        usleep( USLEEP_TIME );
         /* Busy loop, waiting for buffer to fill so we can read */
     }
 
