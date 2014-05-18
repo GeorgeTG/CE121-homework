@@ -88,20 +88,24 @@ int buf_put(char c) {
         return RET_FAIL;
     }
 
+    int peek; /* used to safeguard against multiliple calls from N programs */
     /* Increment in */
-    shm_segment->in = (shm_segment->in+1) % shm_segment->size;
+    peek = (shm_segment->in+1) % shm_segment->size;
 
-    debug("Trying to put char [%c] in buffer, in: %d, out: %d", c,
+    debug("Trying to put char [%c] in %d, in: %d, out: %d", c,
+            peek,
             shm_segment->in,
             shm_segment->out
         );
 
-    while ( shm_segment->out - shm_segment->in == 1){
+    while ( shm_segment->out - peek == 0){
         /* Busy loop, waiting for buffer to get an empty slot */
     }
 
     (shm_segment->buf)[(shm_segment->in)] = c;
-    debug("We just put char [%c] in buffer @ pos: %d", c, shm_segment->in);
+
+    debug("We just put char [%c] in buffer @ pos: %d", c, peek);
+    shm_segment->in = peek;
     debug("buf_put: positions state--> in: %d, out: %d",
             shm_segment->in,
             shm_segment->out
@@ -120,7 +124,7 @@ int buf_get(char *c){
             shm_segment->out
         );
 
-    while( shm_segment->in - shm_segment->out == 1){
+    while( shm_segment->in - shm_segment->out == 0){
         /* Busy loop, waiting for buffer to fill so we can read */
     }
 
