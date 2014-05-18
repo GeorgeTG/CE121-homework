@@ -10,7 +10,7 @@ typedef struct {
 } shm_st;
 
 extern shm_st *shm_segment;
-extern int shmid;
+extern int shmid, in, out;
 
 int buf_init(int n);
 int buf_destroy();
