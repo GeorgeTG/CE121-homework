@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <sys/ipc.h>
+#include <sys/sem.h>
 #include <sys/shm.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -24,6 +25,7 @@
 #include "debug.h"
 
 int shmid;
+int gp_semid, io_semid;
 shm_st *shm_segment = NULL;
 
 int buf_init(int n) {
@@ -59,21 +61,56 @@ int buf_init(int n) {
         }
     }
     debug("_shmid: %d\n", _shmid);
-
+    
+    /* Attach the shared memory to proccess */
     shmid = _shmid;
     shm_segment = (shm_st*)shmat(shmid, NULL, 0);
     if( shm_segment == (void*)-1 ) {
         log_err("shmat");
         return RET_FAIL;
     }
-
     debug("Attached ID: [%d] at [%p].\n", shmid, shm_segment);
+
+    /* Get the Get/Put semaphores */
+    gp_semid = semget(SEM_GP, 2, IPC_CREAT | S_IRWXU);
+    if( gp_semid < 0 ) {
+        log_err("semget");
+
+        int ret = shmdt(shm_segment);
+        if(ret < 0) {
+            log_err("shmdt");
+            exit(EXIT_FAILURE);
+        }
+
+        return RET_FAIL;
+    }
+
+    /* Get the In/Out semaphores */
+    io_semid = semget(SEM_IO, 2, IPC_CREAT | S_IRWXU);
+    if( io_semid < 0 ) {
+        log_err("semget");
+
+        int ret = shmdt(shm_segment);
+        if(ret < 0) {
+            log_err("shmdt");
+            exit(EXIT_FAILURE);
+        }
+
+        ret = semctl(gp_semid, 2, IPC_RMID);
+        if( ret < 0 ) {
+            log_err("semctl");
+        }
+
+        return RET_FAIL;
+    }
 
     if (retValue > 0 ){
         /* Init struct */
         shm_segment->size = n+1;
         shm_segment->in = shm_segment->out = 0;
-        shm_segment->get_lock = shm_segment->put_lock = 0;
+
+        /* Init semaphores */
+
     }
     return retValue;
 }
@@ -109,13 +146,7 @@ int buf_put(char c) {
         log_err("Buffer not initialized.");
         return RET_FAIL;
     }
-    
-    /* Dirty semaphore to limit simulaneous function calls */
-    while( shm_segment->put_lock == 1) {
-        usleep( USLEEP_TIME );
-    }
-    shm_segment->put_lock = 1;
-    
+   
     /* Increment in */
     int prevPos = shm_segment->in;
     shm_segment->in = (shm_segment->in+1) % shm_segment->size;
@@ -126,11 +157,6 @@ int buf_put(char c) {
             shm_segment->out
         );
 
-    while ( shm_segment->out - prevPos == 0){
-        usleep( USLEEP_TIME );
-        /* Busy loop, waiting for buffer to get an empty slot */
-    }
-
     (shm_segment->buf)[prevPos] = c;
 
     debug("We just put char [%c] in buffer @ pos: %d", c, prevPos);
@@ -139,9 +165,6 @@ int buf_put(char c) {
             shm_segment->out
         );
     
-    /* Unlock the function */
-    shm_segment->put_lock = 0;
-
     return RET_SUCCESS;
 }
 
@@ -155,17 +178,6 @@ int buf_get(char *c){
             shm_segment->out
         );
     
-    /* Dirty semaphore to limit simulaneous function calls */
-    while( shm_segment->get_lock == 1) {
-        usleep( USLEEP_TIME );
-    }
-    shm_segment->get_lock = 1;
-    
-    while( shm_segment->in - shm_segment->out == 0){
-        usleep( USLEEP_TIME );
-        /* Busy loop, waiting for buffer to fill so we can read */
-    }
-
     /* Extract next character from buffer */
     *c = (shm_segment->buf)[shm_segment->out];
 
@@ -176,9 +188,6 @@ int buf_get(char *c){
         shm_segment->in,
         shm_segment->out
     );
-
-    /* Unlock the function */
-    shm_segment->get_lock = 0;
 
     return RET_SUCCESS;
 }
