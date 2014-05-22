@@ -1,7 +1,7 @@
 CC = @gcc
 FLAGS = -Wall
 
-all: clean
+all: receiver sender
 	@echo All done.
 
 receiver: library.h library.o receiver.c
@@ -16,7 +16,3 @@ sender: library.h library.o sender.c
 library.o: library.h library.c debug.h
 	@echo Building library...
 	$(CC) $(FLAGS) -c library.c
-
-clean: receiver sender
-	@echo Cleaning up....
-	@rm -rvf library.o
