@@ -1,6 +1,14 @@
 #ifndef SHM_LIBRARY
-
 #define SHM_LIBRARY
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <errno.h>
 
 #define SHM_KEY 1337
 
