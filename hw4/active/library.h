@@ -7,7 +7,7 @@
 typedef struct {
     int size;
     int in,out;
-    char get_lock, put_lock;
+    char mutex;
     char buf[];
 } shm_st;
 

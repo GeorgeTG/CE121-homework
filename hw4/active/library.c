@@ -32,7 +32,7 @@ int buf_init(int n) {
     /* we need n+1 size since we have to sacriffice 1 spot in the
      * array in order to use circular-buffer related modulo calculations
      * properly */
-    size_t totalSize = sizeof(shm_st) + (n+1)*sizeof(char);
+    size_t totalSize = sizeof(shm_st) + n*sizeof(char);
     debug("Total size: %zu", totalSize);
 
     int retValue = RET_SUCCESS;
@@ -70,10 +70,10 @@ int buf_init(int n) {
     debug("Attached ID: [%d] at [%p].\n", shmid, shm_segment);
 
     if (retValue > 0 ){
-        /* Init struct */
-        shm_segment->size = n+1;
+        /* Initialize structure */
+        shm_segment->size = n;
         shm_segment->in = shm_segment->out = 0;
-        shm_segment->get_lock = shm_segment->put_lock = 0;
+        shm_segment->mutex = 0;
     }
     return retValue;
 }
@@ -110,37 +110,38 @@ int buf_put(char c) {
         return RET_FAIL;
     }
     
-    /* Dirty semaphore to limit simulaneous function calls */
-    while( shm_segment->put_lock == 1) {
+    /* Busy loop, waiting for buffer to get an empty slot */
+    int nextPos = (shm_segment->in + 1) % shm_segment->size; 
+    while ( shm_segment->out == nextPos ){
         usleep( USLEEP_TIME );
     }
-    shm_segment->put_lock = 1;
     
-    /* Increment in */
-    int prevPos = shm_segment->in;
-    shm_segment->in = (shm_segment->in+1) % shm_segment->size;
-
     debug("Trying to put char [%c] in %d, in: %d, out: %d", c,
-            prevPos,
+            shm_segment->in,
             shm_segment->in,
             shm_segment->out
         );
 
-    while ( shm_segment->out - prevPos == 0){
+    /* Dirty semaphore to limit simulaneous function calls */
+    while( shm_segment->mutex == 1) {
         usleep( USLEEP_TIME );
-        /* Busy loop, waiting for buffer to get an empty slot */
     }
-
-    (shm_segment->buf)[prevPos] = c;
-
-    debug("We just put char [%c] in buffer @ pos: %d", c, prevPos);
+    shm_segment->mutex = 1;
+    
+    /**** Critical Section ****/ 
+    (shm_segment->buf)[shm_segment->in] = c;
+    
+    debug("We just put char [%c] in buffer @ pos: %d", c, nextPos);
+    
+    shm_segment->in = nextPos;
+    
     debug("buf_put: positions state--> in: %d, out: %d",
             shm_segment->in,
             shm_segment->out
         );
-    
-    /* Unlock the function */
-    shm_segment->put_lock = 0;
+    /************************/
+    /* Unlock the shared memory */
+    shm_segment->mutex = 0;
 
     return RET_SUCCESS;
 }
@@ -155,17 +156,18 @@ int buf_get(char *c){
             shm_segment->out
         );
     
-    /* Dirty semaphore to limit simulaneous function calls */
-    while( shm_segment->get_lock == 1) {
-        usleep( USLEEP_TIME );
-    }
-    shm_segment->get_lock = 1;
-    
+    /* Busy loop, waiting for buffer to fill so we can read */
     while( shm_segment->in - shm_segment->out == 0){
         usleep( USLEEP_TIME );
-        /* Busy loop, waiting for buffer to fill so we can read */
     }
 
+    /* Dirty semaphore to limit simulaneous function calls */
+    while( shm_segment->mutex == 1) {
+        usleep( USLEEP_TIME );
+    }
+    shm_segment->mutex = 1;
+    
+    /**** Critical Section ****/
     /* Extract next character from buffer */
     *c = (shm_segment->buf)[shm_segment->out];
 
@@ -177,8 +179,9 @@ int buf_get(char *c){
         shm_segment->out
     );
 
-    /* Unlock the function */
-    shm_segment->get_lock = 0;
+    /*************************/
+    /* Unlock the shared memory */
+    shm_segment->mutex = 0;
 
     return RET_SUCCESS;
 }
