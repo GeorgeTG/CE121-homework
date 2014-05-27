@@ -1,13 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/ipc.h>
-#include <sys/sem.h>
-#include <sys/shm.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <errno.h>
-
 #include "library.h"
 
 #define RET_FAIL -1
@@ -25,16 +15,14 @@
 #include "debug.h"
 
 int shmid;
-int gp_semid, io_semid;
+int free_sem, full_sem, mutex;
 shm_st *shm_segment = NULL;
 
 int buf_init(int n) {
     debug("Key: %d", SHM_KEY);
     debug("Lean struct size: %zu", sizeof(*shm_segment) );
-    /* we need n+1 size since we have to sacriffice 1 spot in the
-     * array in order to use circular-buffer related modulo calculations
-     * properly */
-    size_t totalSize = sizeof(shm_st) + (n+1)*sizeof(char);
+    
+    size_t totalSize = sizeof(shm_st) + n*sizeof(char);
     debug("Total size: %zu", totalSize);
 
     int retValue = RET_SUCCESS;
@@ -71,45 +59,36 @@ int buf_init(int n) {
     }
     debug("Attached ID: [%d] at [%p].\n", shmid, shm_segment);
 
-    /* Get the Get/Put semaphores */
-    gp_semid = semget(SEM_GP, 2, IPC_CREAT | S_IRWXU);
-    if( gp_semid < 0 ) {
-        log_err("semget");
-
-        int ret = shmdt(shm_segment);
-        if(ret < 0) {
-            log_err("shmdt");
-            exit(EXIT_FAILURE);
-        }
-
+    /* Get the free_sem semaphores */
+    free_sem = _semget(SEM_FREE);
+    if( free_sem < 0 ) {
+        return RET_FAIL;
+    }
+    
+    /* Get the full_sem semaphores */
+    full_sem = _semget(SEM_FULL);
+    if( full_sem < 0 ) {
         return RET_FAIL;
     }
 
-    /* Get the In/Out semaphores */
-    io_semid = semget(SEM_IO, 2, IPC_CREAT | S_IRWXU);
-    if( io_semid < 0 ) {
-        log_err("semget");
-
-        int ret = shmdt(shm_segment);
-        if(ret < 0) {
-            log_err("shmdt");
-            exit(EXIT_FAILURE);
-        }
-
-        ret = semctl(gp_semid, 2, IPC_RMID);
-        if( ret < 0 ) {
-            log_err("semctl");
-        }
-
+    /* Get the mutex semaphores */
+    mutex = _semget(SEM_MUTEX);
+    if( mutex < 0 ) {
         return RET_FAIL;
     }
 
     if (retValue > 0 ){
         /* Init struct */
-        shm_segment->size = n+1;
+        shm_segment->size = n;
         shm_segment->in = shm_segment->out = 0;
 
         /* Init semaphores */
+        if( _semctl(free_sem, SETVAL, n) == RET_FAIL )
+            return RET_FAIL;
+        if( _semctl(full_sem, SETVAL, 0) == RET_FAIL )
+            return RET_FAIL;
+        if( _semctl(mutex, SETVAL, 1) == RET_FAIL )
+            return RET_FAIL;
 
     }
     return retValue;
@@ -134,6 +113,17 @@ int buf_destroy(void) {
         return RET_FAIL;
     }
     
+    /* Set for destruction the semaphores */
+    if( _semctl(free_sem, IPC_RMID, 0) )
+        return RET_FAIL;
+
+    if( _semctl(full_sem, IPC_RMID, 0) )
+        return RET_FAIL;
+
+    if( _semctl(mutex, IPC_RMID, 0) )
+        return RET_FAIL;
+
+
     /* NULLize the struct */
     shm_segment = NULL;
 
@@ -146,25 +136,44 @@ int buf_put(char c) {
         log_err("Buffer not initialized.");
         return RET_FAIL;
     }
-   
-    /* Increment in */
-    int prevPos = shm_segment->in;
-    shm_segment->in = (shm_segment->in+1) % shm_segment->size;
+    
+    /* Decreasing free_sem spots on shm */
+    if( _semdown(free_sem) == RET_FAIL )
+        return RET_FAIL;
 
+    /* Increase the full_sem spots on shm */
+    if( _semup(full_sem) == RET_FAIL )
+        return RET_FAIL;
+    
+    int nextPos = (shm_segment->in + 1) % shm_segment->size; 
     debug("Trying to put char [%c] in %d, in: %d, out: %d", c,
-            prevPos,
+            shm_segment->in,
             shm_segment->in,
             shm_segment->out
         );
 
-    (shm_segment->buf)[prevPos] = c;
+    
+    /* Lock the shared memory */
+    if( _semdown(mutex) == RET_FAIL)
+        return RET_FAIL;
 
-    debug("We just put char [%c] in buffer @ pos: %d", c, prevPos);
+    /**** Critical Section ****/ 
+    (shm_segment->buf)[shm_segment->in] = c;
+    
+    debug("We just put char [%c] in buffer @ pos: %d", c, nextPos);
+    
+    shm_segment->in = nextPos;
+    
     debug("buf_put: positions state--> in: %d, out: %d",
             shm_segment->in,
             shm_segment->out
         );
-    
+    /************************/
+
+    /* Unlock the shared memory */
+    if( _semup(mutex) == RET_FAIL )
+        return RET_FAIL;
+
     return RET_SUCCESS;
 }
 
@@ -178,6 +187,24 @@ int buf_get(char *c){
             shm_segment->out
         );
     
+    /* Busy loop, waiting for buffer to fill so we can read */
+    while( shm_segment->in - shm_segment->out == 0){
+        usleep( USLEEP_TIME );
+    }
+
+    /* Decrease the full_sem spots on shm */
+    if( _semdown(full_sem) == RET_FAIL )
+        return RET_FAIL;
+    
+    /* Increase the free_sem spots on shm */
+    if( _semup(free_sem) == RET_FAIL )
+        return RET_FAIL;
+    
+    /* Lock the shared memory */
+    if( _semdown(mutex) == RET_FAIL)
+        return RET_FAIL;
+
+    /**** Critical Section ****/
     /* Extract next character from buffer */
     *c = (shm_segment->buf)[shm_segment->out];
 
@@ -189,7 +216,75 @@ int buf_get(char *c){
         shm_segment->out
     );
 
+    /*************************/
+    /* Unlock the shared memory */
+    if( _semup(mutex) == RET_FAIL )
+        return RET_FAIL;
+
     return RET_SUCCESS;
 }
 
+/* Wrapper functions for semaphores */
+int _semget(key_t key) {
+    int semid = semget(key, 1, IPC_CREAT | IPC_EXCL | S_IRWXU);
+    if( semid < 0 ) {
+        if( errno == EEXIST) {
+            log_info("Semaphone exists!");
+
+            semid = semget(key, 1, 0);
+            debug("%d\n", semid);
+            if( semid < 0 ) {
+                log_err("semget");
+                return RET_FAIL;
+            }
+        }
+        else {
+            log_err("semget");
+
+            int ret = shmdt(shm_segment);
+            if(ret < 0) {
+                log_err("shmdt");
+            }
+
+            return RET_FAIL;
+        }
+    }
+    return semid;
+}
+
+int _semctl(int semid, int cmd, int arg) {
+    int ret = semctl(semid, 0, cmd, arg);
+    if( ret == -1 ) {
+        log_err("semctl");
+    }
+    return ret;
+}
+
+int _semup(int semid) {
+    struct sembuf op;
+    op.sem_num = 0;
+    op.sem_op = 1;
+    
+    debug("Increasing semaphore [%d] by 1\n",
+            semid);
+
+    if( semop(semid, &op, 1) == RET_FAIL )
+        return RET_FAIL;
+
+    return RET_SUCCESS;
+}
+
+int _semdown(int semid) {
+    struct sembuf op;
+    op.sem_num = 0;
+    op.sem_op = -1;
+    
+    debug("Decreasing sempaphore [%d] by 1\n",
+            semid);
+
+    if( semop(semid, &op, 1) == RET_FAIL )
+        return RET_FAIL;
+
+    return RET_SUCCESS;
+}
 
