@@ -6,9 +6,8 @@
 
 #define USLEEP_TIME 200
 
-#define is_mem_ok(M) (M != NULL && M!=(void*)-1)
+#define IS_MEM_OK(M) (M != NULL && M!=(void*)-1)
 
-/*#define NDEBUG*/
 /* ipcs -m !!!!! Terminal command to show all shared memory segments!!!
  * ipcrm -m <shmid> !!!! Terminal command to destroy segment!! */
 
@@ -77,10 +76,14 @@ int buf_init(int n) {
         return RET_FAIL;
     }
 
+    /* Increase the proccess count */
+    shm_segment->nproc++;
+
     if (retValue > 0 ){
         /* Init struct */
         shm_segment->size = n;
         shm_segment->in = shm_segment->out = 0;
+        shm_segment->nproc = 1;
 
         /* Init semaphores */
         if( _semctl(free_sem, SETVAL, n) == RET_FAIL )
@@ -95,6 +98,13 @@ int buf_init(int n) {
 }
 
 int buf_destroy(void) {
+    if ( !IS_MEM_OK(shm_segment) ){
+        log_err("Buffer not initialized.");
+        return RET_FAIL;
+    }
+    /* Decrease the number of proccess */
+    int nproc = --(shm_segment->nproc);
+
     int retValue = shmctl(shmid, IPC_RMID, NULL);
     if ( retValue < 0 ) {
         if ( errno == EIDRM ) {
@@ -113,16 +123,17 @@ int buf_destroy(void) {
         return RET_FAIL;
     }
     
-    /* Set for destruction the semaphores */
-    if( _semctl(free_sem, IPC_RMID, 0) )
-        return RET_FAIL;
+    if( nproc == 0 ) {
+        /* Set for destruction the semaphores */
+        if( _semctl(free_sem, IPC_RMID, 0) )
+            return RET_FAIL;
 
-    if( _semctl(full_sem, IPC_RMID, 0) )
-        return RET_FAIL;
+        if( _semctl(full_sem, IPC_RMID, 0) )
+            return RET_FAIL;
 
-    if( _semctl(mutex, IPC_RMID, 0) )
-        return RET_FAIL;
-
+        if( _semctl(mutex, IPC_RMID, 0) )
+            return RET_FAIL;
+    }
 
     /* NULLize the struct */
     shm_segment = NULL;
@@ -132,7 +143,7 @@ int buf_destroy(void) {
 }
 
 int buf_put(char c) {
-    if ( !is_mem_ok(shm_segment) ){
+    if ( !IS_MEM_OK(shm_segment) ){
         log_err("Buffer not initialized.");
         return RET_FAIL;
     }
@@ -141,17 +152,13 @@ int buf_put(char c) {
     if( _semdown(free_sem) == RET_FAIL )
         return RET_FAIL;
 
-    /* Increase the full_sem spots on shm */
-    if( _semup(full_sem) == RET_FAIL )
-        return RET_FAIL;
-    
+       
     int nextPos = (shm_segment->in + 1) % shm_segment->size; 
     debug("Trying to put char [%c] in %d, in: %d, out: %d", c,
             shm_segment->in,
             shm_segment->in,
             shm_segment->out
         );
-
     
     /* Lock the shared memory */
     if( _semdown(mutex) == RET_FAIL)
@@ -173,34 +180,32 @@ int buf_put(char c) {
     /* Unlock the shared memory */
     if( _semup(mutex) == RET_FAIL )
         return RET_FAIL;
-
+    
+    /* Increase the full_sem spots on shm */
+    if( _semup(full_sem) == RET_FAIL )
+        return RET_FAIL;
+ 
     return RET_SUCCESS;
 }
 
-int buf_get(char *c){
-    if ( !is_mem_ok(shm_segment) ){
-            log_err("Buffer not initialized.");
-            return RET_FAIL;
+int buf_get(char *c){ 
+    if ( !IS_MEM_OK(shm_segment) ){
+        log_err("Buffer not initialized.");
+        return RET_FAIL;
     }
     debug("Trying to get char from buffer, in: %d, out: %d",
             shm_segment->in,
             shm_segment->out
         );
     
-    /* Busy loop, waiting for buffer to fill so we can read */
-    while( shm_segment->in - shm_segment->out == 0){
-        usleep( USLEEP_TIME );
-    }
-
     /* Decrease the full_sem spots on shm */
+    //debug("full = %d\n", _semprint(full_sem));
     if( _semdown(full_sem) == RET_FAIL )
         return RET_FAIL;
     
-    /* Increase the free_sem spots on shm */
-    if( _semup(free_sem) == RET_FAIL )
-        return RET_FAIL;
-    
+       
     /* Lock the shared memory */
+    //debug("mutex = %d\n", _semprint(mutex));
     if( _semdown(mutex) == RET_FAIL)
         return RET_FAIL;
 
@@ -220,7 +225,12 @@ int buf_get(char *c){
     /* Unlock the shared memory */
     if( _semup(mutex) == RET_FAIL )
         return RET_FAIL;
-
+    
+    /* Increase the free_sem spots on shm */
+    //debug("free = %d\n", _semprint(free_sem));
+    if( _semup(free_sem) == RET_FAIL )
+        return RET_FAIL;
+ 
     return RET_SUCCESS;
 }
 
@@ -286,5 +296,9 @@ int _semdown(int semid) {
         return RET_FAIL;
 
     return RET_SUCCESS;
+}
+
+int _semprint(int semid) {
+    return _semctl(semid, GETVAL, 0);
 }
 

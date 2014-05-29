@@ -8,7 +8,7 @@
 
 #define is_mem_ok(M) (M != NULL && M!=(void*)-1)
 
-/*#define NDEBUG*/
+#define NDEBUG
 /* ipcs -m !!!!! Terminal command to show all shared memory segments!!!
  * ipcrm -m <shmid> !!!! Terminal command to destroy segment!! */
 
@@ -23,6 +23,7 @@ int buf_init(int n) {
     /* we need n+1 size since we have to sacriffice 1 spot in the
      * array in order to use circular-buffer related modulo calculations
      * properly */
+    n++;
     size_t totalSize = sizeof(shm_st) + n*sizeof(char);
     debug("Total size: %zu", totalSize);
 
@@ -60,7 +61,7 @@ int buf_init(int n) {
 
     debug("Attached ID: [%d] at [%p].\n", shmid, shm_segment);
 
-    if (retValue > 0 ){
+    if (retValue > 0 ) {
         /* Initialize structure */
         shm_segment->size = n;
         shm_segment->in = shm_segment->out = 0;

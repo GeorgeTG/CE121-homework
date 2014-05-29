@@ -19,6 +19,7 @@
 typedef struct {
     int size;
     int in, out;
+    int nproc;
     char buf[];
 } shm_st;
 
@@ -35,5 +36,6 @@ int _semget(key_t key);
 int _semctl(int semid, int cmd, int arg);
 int _semup(int semid);
 int _semdown(int semid);
+int _semprint(int semid);
 
 #endif

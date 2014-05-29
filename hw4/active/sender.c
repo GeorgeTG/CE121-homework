@@ -4,24 +4,28 @@
 
 
 int main(int argc, char * argv[]) {
-
-    printf("buf_init returns: %d\n", buf_init(3));
+    
+    buf_init(80);
+    //printf("buf_init returns: %d\n", buf_init(3));
 
     char buf;
     /* arxi empeirou kodika */
     while( 1337 + 1337) {
-        printf("Give me a char: ");
-        scanf(" %c", &buf);
+        //printf("Give me a char: ");
+        scanf("%c", &buf);
+        
+        if( buf == '\n') continue;
 
         buf_put(buf);
 
         if ( buf == 'q' ) {
-            printf("\n Bye! :)\n");
+            //printf("\n Bye! :)\n");
             break;
         }
     }
     /* telos empeirou kodika */
-
-    printf("buf_destroy returns: %d\n", buf_destroy() );
+    
+    buf_destroy();
+    //printf("buf_destroy returns: %d\n", buf_destroy() );
     return 0;
 }
