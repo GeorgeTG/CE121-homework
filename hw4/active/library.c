@@ -9,8 +9,6 @@
 #define is_mem_ok(M) (M != NULL && M!=(void*)-1)
 
 #define NDEBUG
-/* ipcs -m !!!!! Terminal command to show all shared memory segments!!!
- * ipcrm -m <shmid> !!!! Terminal command to destroy segment!! */
 
 #include "debug.h"
 
@@ -52,6 +50,7 @@ int buf_init(int n) {
     }
     debug("_shmid: %d\n", _shmid);
 
+    /* attach segment */
     shmid = _shmid;
     shm_segment = (shm_st*)shmat(shmid, NULL, 0);
     if( shm_segment == (void*)-1 ) {
@@ -88,7 +87,7 @@ int buf_destroy(void) {
         log_err("shmdt");
         return RET_FAIL;
     }
-    
+
     /* NULLize the struct */
     shm_segment = NULL;
 
@@ -97,17 +96,18 @@ int buf_destroy(void) {
 }
 
 int buf_put(char c) {
+    /* This kind of Mutex technique is STILL NOT thread SAFE!!! */
     if ( !is_mem_ok(shm_segment) ){
         log_err("Buffer not initialized.");
         return RET_FAIL;
     }
-    
+
     /* Busy loop, waiting for buffer to get an empty slot */
-    int nextPos = (shm_segment->in + 1) % shm_segment->size; 
+    int nextPos = (shm_segment->in + 1) % shm_segment->size;
     while ( shm_segment->out == nextPos ){
         usleep( USLEEP_TIME );
     }
-    
+
     debug("Trying to put char [%c] in %d, in: %d, out: %d", c,
             shm_segment->in,
             shm_segment->in,
@@ -119,14 +119,14 @@ int buf_put(char c) {
         usleep( USLEEP_TIME );
     }
     shm_segment->mutex = 1;
-    
-    /**** Critical Section ****/ 
+
+    /**** Critical Section ****/
     (shm_segment->buf)[shm_segment->in] = c;
-    
+
     debug("We just put char [%c] in buffer @ pos: %d", c, nextPos);
-    
+
     shm_segment->in = nextPos;
-    
+
     debug("buf_put: positions state--> in: %d, out: %d",
             shm_segment->in,
             shm_segment->out
@@ -147,7 +147,7 @@ int buf_get(char *c){
             shm_segment->in,
             shm_segment->out
         );
-    
+
     /* Busy loop, waiting for buffer to fill so we can read */
     while( shm_segment->in - shm_segment->out == 0){
         usleep( USLEEP_TIME );
@@ -158,7 +158,7 @@ int buf_get(char *c){
         usleep( USLEEP_TIME );
     }
     shm_segment->mutex = 1;
-    
+
     /**** Critical Section ****/
     /* Extract next character from buffer */
     *c = (shm_segment->buf)[shm_segment->out];
